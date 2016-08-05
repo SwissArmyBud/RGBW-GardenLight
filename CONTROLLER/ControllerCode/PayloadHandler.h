@@ -10,11 +10,6 @@ union PayloadHandler
     byte bytB: 8;
     byte bytA: 8;
   } bytPL;
-  struct{
-    byte posB: 8;
-    unsigned short unsS: 16;
-    byte preB: 8;
-  } unsPL;
   struct
   {
     byte nybD2: 4;
