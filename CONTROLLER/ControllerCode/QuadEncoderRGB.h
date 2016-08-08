@@ -4,7 +4,7 @@ using namespace std;
 class QuadEncoderRGB{
   public:
     QuadEncoderRGB(){};
-    QuadEncoderRGB(byte _redPin, byte _grnPin, byte _bluPin, byte _swtBtn, byte _encA, byte _encB, byte _swtDB, byte _maxEnc){
+    QuadEncoderRGB(byte _redPin, byte _grnPin, byte _bluPin, byte _swtBtn, byte _encA, byte _encB, byte _swtDB){
       
       this->redLED = _redPin;
       this->grnLED = _grnPin;
@@ -32,7 +32,7 @@ class QuadEncoderRGB{
       pinMode(encB, INPUT);
       digitalWrite(encA, HIGH);
       digitalWrite(encB, HIGH);
-      this->maxPos = _maxEnc;
+      this->maxPos = 0;
       this->encPos = 0;
       this->curPos = 0;
       

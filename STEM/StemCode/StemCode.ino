@@ -1,6 +1,5 @@
-// 8,816/845
-// 6,568/437
 
+/*-----( Import needed libraries )-----*/
 #include <Wire.h>
 #include <SPI.h>
 #include "RF24.h"
@@ -8,20 +7,16 @@
 #include "ByteBreaker.h"
 #include "PayloadHandler.h"
 
-#define  MIN_RGB_VALUE  0   // no smaller than 0.
-#define  MAX_RGB_VALUE  150  // no bigger than 255.
-#define  MAX_WHT_VALUE 200
-#define  MAX_GLOBAL_LED 255
-#define  TRANSITION_DELAY  20   // in milliseconds, between individual light changes
 
+/*-----( Declare Constants )-----*/
+
+// Setup the H/P LED PWM ports
 #define grnLEDport 3
 #define redLEDport 5
 #define bluLEDport 6
 #define whtLEDport 9
 
-//
-// Hardware configuration
-//
+/*-----( Declare Global Objects )-----*/
 
 // Set up nRF24L01 radio on SPI bus plus pins 14 & 10
 RF24 radio(14, 10);
@@ -29,19 +24,23 @@ RF24 radio(14, 10);
 const uint64_t pipes[2] = { 0xF0A0F0A5AALL, 0xF0A0F0A566LL }; // radio pipe addresses for the 2 nodes to communicate.
 // Payload container
 unsigned long radio_payload = 0;
-// Network Address
-byte STEM_ADDRESS = (byte)15;
 
+// Byte manipulators
 ByteBreaker btBreaker;
 PayloadHandler plHandler;
 
+// Incoming RGB/W container and a second one to hold the current RGBW color
 byte rgbAry[] = { 0, 0, 0};
 byte curColor[] = { 0, 0, 0, 0};
 
+// Boolean to keep track of the type of incoming bytes (RGB/W)
 bool isColor = false;
 
+/*----( SETUP: RUNS ONCE )----*/
 void setup(void)
 {
+
+  // ------- Setup pin modes for H/P LEDs  -------------
   pinMode (redLEDport, OUTPUT);
   analogWrite(redLEDport, 0);
   pinMode (grnLEDport, OUTPUT);
@@ -50,11 +49,12 @@ void setup(void)
   analogWrite(bluLEDport, 0);
   pinMode (whtLEDport, OUTPUT);
   analogWrite(whtLEDport, 0);
-  
+
+  // ------- Initialize and setup the NRF radio module -------------
   radio.begin();
   radio.setChannel(100);
-  radio.setRetries(10,10);                 // Smallest time between retries, max no. of retries
-  radio.setPayloadSize(8);                // Here we are sending 1-byte payloads to test the call-response speed
+  radio.setRetries(10,10);
+  radio.setPayloadSize(8);
   
   if (true) { // Set the pipe direction for listening/writing
     radio.openWritingPipe(pipes[0]);
@@ -66,134 +66,78 @@ void setup(void)
 
   radio.startListening(); // Start the NRF radio and have it listen for traffic
 
-}
+}/*--( end setup )---*/
 
-unsigned long currentTime = 0;
-unsigned long zeroTime = 0;
+void loop() { /*----( LOOP: RUNS CONSTANTLY )----*/
 
-void loop(void) {
-
-  delay(30);
-  currentTime = millis();
+  delay(20); // don't abuse the radio, give it a little break between loops
   
-  if ( radio.available() ) {
-    radio.read( &radio_payload, 4 );
-    processPayload();
+  if ( radio.available() ) { // if the radio has a payload available
+    radio.read( &radio_payload, sizeof(radio_payload) ); // read the payload
+    processPayload(); // process the payload according to protocol
   }
 
-}
+}/* --(end main loop )-- */
 
+// Sub-routine to process the incoming payloads
 void processPayload() {
 
-  plHandler.unlPL = radio_payload;
-  if (plHandler.bytPL.bytD == STEM_ADDRESS || plHandler.bytPL.bytD == (byte)255) {
-    if(plHandler.nybPL.nybA1 == 1){
+  plHandler.unlPL = radio_payload; // copy the payload into the byte manipulator for payloads
+  if (plHandler.bytPL.bytD == (byte)255) { // check for address match (NOT IMPLEMENTED)
+    if(plHandler.nybPL.nybA1 == 1){  // protocol
       switch(plHandler.nybPL.nybA2){
         case(1):
-          rgbAry[0] = plHandler.bytPL.bytB;
-          rgbAry[1] = plHandler.bytPL.bytC;
-          isColor = true;
+          rgbAry[0] = plHandler.bytPL.bytB; // load byte 1 into the R position
+          rgbAry[1] = plHandler.bytPL.bytC; // load byte 2 into the G position
+          isColor = true; // activate the color flag
           break;
          case(2):
-          rgbAry[2] = plHandler.bytPL.bytB;
-          if( isColor && (plHandler.bytPL.bytC == (20))){
-            updateStem();
-            isColor = false;
+          rgbAry[2] = plHandler.bytPL.bytB; // load byte 3 into the B position
+          if( isColor && (plHandler.bytPL.bytC == (20))){ // protocol
+            updateStem(); // update the stem color
+            isColor = false; // reset the color flag
           }
           break;
         case(3):
-          rgbAry[0] = plHandler.bytPL.bytB;
-          rgbAry[1] = 0;
-          rgbAry[2] = 0;
-          if (plHandler.bytPL.bytC == 20){
-            isColor = false;
-            updateStem();
+          rgbAry[0] = plHandler.bytPL.bytB; // load byte 1 into the W position
+          rgbAry[1] = 0; // leave others empty
+          rgbAry[2] = 0; // leave others empty
+          if (plHandler.bytPL.bytC == 20){ // protocol
+            isColor = false; // deactivate color flag
+            updateStem(); // update stem color
           }
           break;
       }
     }
-    else{
-      rgbAry[0] = 0;
-      rgbAry[1] = 0;
-      rgbAry[2] = 0;
-      isColor = true;
-      updateStem();
+    else{ // if there is a problem with the protocol
+      rgbAry[0] = 0; // reset
+      rgbAry[1] = 0; // all
+      rgbAry[2] = 0; // values
+      isColor = true; // including the color flag
+      updateStem(); // update the stem color
     }
   }
   
-  radio_payload = 0;
+  radio_payload = 0; // reset the radio payload
 }
 
-
+// Sub-routine to update the stem color
 void updateStem() {
-//  
-//    byte colValue[] = {curColor[0],curColor[1],curColor[2],curColor[3]};
-//    
-//    // check max global LED power
-//    short sum = rgbAry[0] + rgbAry[1] + rgbAry[2];
-//    if((sum>MAX_GLOBAL_LED )&& color){
-//      for(byte i=0;i<=3;i++){
-//        rgbAry[i] = rgbAry[i] * (MAX_GLOBAL_LED / sum);
-//      }
-//    }
-//
-//    // check individual bulb power
-//    byte max = 0;
-//    for(byte i=0;i<3;i++){
-//      if(rgbAry[i]>max){
-//        max = rgbAry[i];
-//      }
-//    }
-//    if((max>MAX_WHT_VALUE)&&!color){
-//      rgbAry[0] = MAX_WHT_VALUE;
-//    }
-//    if((max>MAX_RGB_VALUE)&&color){
-//      rgbAry[0] = rgbAry[0] * (MAX_RGB_VALUE / max);
-//      rgbAry[1] = rgbAry[1] * (MAX_RGB_VALUE / max);
-//      rgbAry[2] = rgbAry[2] * (MAX_RGB_VALUE / max);
-//    }
-//
-//    byte fraction = 100;
-//    for(byte i=0; i<=fraction; i++){
-//      
-//      if(color){
-//        colValue[0] = ((100-i)*(curColor[0]/100)) + ((rgbAry[0]*i)/100);
-//        colValue[1] = ((100-i)*(curColor[1]/100)) + ((rgbAry[1]*i)/100);
-//        colValue[2] = ((100-i)*(curColor[1]/100)) + ((rgbAry[2]*i)/100);
-//        colValue[3] = ((100-i)*(curColor[3]/100));
-//      }
-//      else{
-//        colValue[0] = ((100-i)*(curColor[0]/100));
-//        colValue[1] = ((100-i)*(curColor[1]/100));
-//        colValue[2] = ((100-i)*(curColor[1]/100));
-//        colValue[3] = ((100-i)*(curColor[3]/100)) + ((rgbAry[0]*i)/100);
-//      }
-//
-//      short sum = colValue[0] + colValue[1] + colValue[2] + colValue[3];
-//      if(sum>MAX_GLOBAL_LED){
-//        for(byte i=0;i<=3;i++){
-//          colValue[i] = colValue[i] * (MAX_GLOBAL_LED / sum);
-//        }
-//      }
-//      analogWrite(redLEDport, colValue[0]);
-//      analogWrite(grnLEDport, colValue[1]);
-//      analogWrite(bluLEDport, colValue[2]);
-//      analogWrite(whtLEDport, colValue[3]);
-//    }
 
-    if(isColor){
+    if(isColor){ // if the node is color use the RGB array to fill in the RGB values
       curColor[0] = rgbAry[0];
       curColor[1] = rgbAry[1];
       curColor[2] = rgbAry[2];
       curColor[3] = 0;
     }
-    else{
+    else{ // if the node is white, use the R slot to fill in W and set other colors to 0
       curColor[0] = 0;
       curColor[1] = 0;
       curColor[2] = 0;
       curColor[3] = rgbAry[0];
     }
-  
+
+    // Set the PWM values for the new color
     analogWrite(redLEDport, curColor[0]);
     analogWrite(grnLEDport, curColor[1]);
     analogWrite(bluLEDport, curColor[2]);
